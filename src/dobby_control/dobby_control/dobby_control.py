@@ -16,31 +16,31 @@ class DobbyControl(Node):
             depth=1
         )
 
-        # 1. 비전 명령 구독
+        # 비전 명령 구독
         self.sub_cmd = self.create_subscription(Vector3, '/dobby/target_info', self.cmd_callback, 10)
         
-        # 2. 로버의 현재 자세(Heading) 구독 [추가됨!]
+        # [중요] 로버의 현재 방향(Heading) 구독
         self.sub_odom = self.create_subscription(VehicleOdometry, '/fmu/out/vehicle_odometry', self.odom_callback, qos_profile)
         
-        # 3. PX4 명령 퍼블리셔
+        # PX4 명령 퍼블리셔
         self.pub_offboard = self.create_publisher(OffboardControlMode, '/fmu/in/offboard_control_mode', qos_profile)
         self.pub_traj = self.create_publisher(TrajectorySetpoint, '/fmu/in/trajectory_setpoint', qos_profile)
         self.pub_vehicle_command = self.create_publisher(VehicleCommand, '/fmu/in/vehicle_command', qos_profile)
 
         self.target_vel = 0.0
         self.target_yaw_rate = 0.0
-        self.current_yaw = 0.0 # 현재 로버가 보고 있는 방향
+        self.current_yaw = 0.0 # 현재 로버가 보고 있는 방향 (라디안)
         self.offboard_setpoint_counter = 0
 
         self.timer = self.create_timer(0.1, self.control_loop)
-        self.get_logger().info("도비 제어기(V2): 방향 보정 기능 탑재 완료!")
+        self.get_logger().info("도비 제어기: 방향 보정 기능 탑재 완료!")
 
     def cmd_callback(self, msg):
         self.target_vel = msg.x
         self.target_yaw_rate = msg.y
 
     def odom_callback(self, msg):
-        # 쿼터니언 -> 오일러(Yaw) 변환
+        # 쿼터니언 -> 오일러(Yaw) 변환 공식
         q = msg.q
         # yaw (z-axis rotation)
         siny_cosp = 2 * (q[0] * q[3] + q[1] * q[2])
@@ -56,16 +56,16 @@ class DobbyControl(Node):
         msg_offboard.timestamp = int(self.get_clock().now().nanoseconds / 1000)
         self.pub_offboard.publish(msg_offboard)
         
-        # [핵심 수정] 몸체 기준 속도를 지도 기준 속도(NED)로 변환
-        # 로버가 북쪽(0도)을 보고 있을 때: vx = speed
-        # 로버가 동쪽(90도)을 보고 있을 때: vy = speed
+        # [핵심 알고리즘] 내 몸 기준 '전진'을 지도 기준 '북쪽/동쪽'으로 변환
+        # vx (북쪽) = 전진속도 * cos(현재각도)
+        # vy (동쪽) = 전진속도 * sin(현재각도)
         vx = self.target_vel * math.cos(self.current_yaw)
         vy = self.target_vel * math.sin(self.current_yaw)
 
         msg_traj = TrajectorySetpoint()
         msg_traj.position = [float('nan'), float('nan'), float('nan')]
-        msg_traj.velocity = [vx, vy, 0.0]   # 계산된 벡터 적용
-        msg_traj.yawspeed = self.target_yaw_rate # 회전 속도 적용
+        msg_traj.velocity = [vx, vy, 0.0]        # 보정된 속도 벡터
+        msg_traj.yawspeed = self.target_yaw_rate # 회전 속도
         
         msg_traj.timestamp = int(self.get_clock().now().nanoseconds / 1000)
         self.pub_traj.publish(msg_traj)
