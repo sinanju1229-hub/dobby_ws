@@ -104,7 +104,7 @@ class DobbyVision(Node):
         center_x = (x1 + x2) / 2
         height = y2 - y1
         error_x = self.img_center_x - center_x
-        cmd_yaw = -1 * self.k_yaw * error_x 
+        cmd_yaw = self.k_yaw * error_x 
         
         if abs(error_x) > self.center_tolerance:
             cmd_vel = 0.0
